@@ -199,7 +199,7 @@ class ArtDirectorAgent:
         [Subject]: Violin, Music Education, Students, Teacher.
 
         Output ONLY the final, polished English prompt string—no explanations.
-        """"
+        """
         response = self.model.generate_content(prompt)
         return response.text.strip()
 
@@ -319,3 +319,4 @@ if st.session_state.result_zip:
             type="primary",
             use_container_width=True
         )
+
