@@ -59,7 +59,7 @@ def generate_winter_special_post(topic, curriculum_notes):
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
         
         print(f"❄️ 겨울방학 특강(Season Ver.) 글 쓰는 중... (주제: {topic})")
         response = model.generate_content(prompt)
@@ -92,4 +92,5 @@ if __name__ == "__main__":
         f.write(post)
 
     print(f"\n✅ 특강 홍보 원고 작성 완료! '{filename}' 파일을 확인해 주세요.")
+
     print("지금 올리셔야 1월 수강생 꽉 찹니다!")
