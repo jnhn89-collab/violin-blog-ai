@@ -51,7 +51,7 @@ def generate_real_blog_post(topic, raw_notes):
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-pro-exp-02-05')
+        model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
         
         print(f"🎻 선생님(Elegant Ver.) 빙의 중... (주제: {topic})")
         response = model.generate_content(prompt)
@@ -84,4 +84,5 @@ if __name__ == "__main__":
         f.write(post)
 
     print(f"\n✅ 원고 작성이 완료되었습니다. '{filename}' 파일을 확인해 주세요.")
+
     print("선생님의 교육 철학에 맞게 조금씩 다듬어 사용하시면 됩니다.")
