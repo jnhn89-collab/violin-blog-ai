@@ -12,6 +12,7 @@ import urllib.error
 import zipfile
 import io
 import random
+import requests
 
 # ==============================================================================
 # 0. 시스템 설정 & Streamlit UI 초기화
@@ -159,7 +160,7 @@ class ArtDirectorAgent:
     """프롬프트 엔지니어: 한국어 상황 묘사를 고품질의 영어 AI 그림 프롬프트로 번역합니다."""
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
 
     def create_prompt(self, korean_desc, mode):
         # 블로그 전체 테마 유지 (일관성)
@@ -207,18 +208,56 @@ class PainterAgent:
     def __init__(self, api_key):
         self.api_key = api_key
         self.model_name = "imagen-4.0-generate-001"
+        # API 엔드포인트 URL 설정
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:predict"
 
     def draw_to_bytes(self, prompt):
-        headers = {"Content-Type": "application/json"}
-        payload = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": "4:3"}}
+        """
+        프롬프트를 받아 이미지를 생성하고, 이미지의 바이너리(bytes) 데이터를 반환합니다.
+        """
+        # 1. 헤더 설정 (API 키 포함)
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key
+        }
+
+        # 2. 페이로드 구성
+        payload = {
+            "instances": [
+                {"prompt": prompt}
+            ],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "4:3"  # 필요에 따라 "1:1", "16:9" 등으로 변경 가능
+            }
+        }
+
         try:
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(self.url, data=data, headers=headers)
-            with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                if "predictions" in result:
-                    return base64.b64decode(result["predictions"][0]["bytesBase64Encoded"])
-        except: return None
+            # 3. requests 라이브러리로 POST 요청
+            response = requests.post(self.url, headers=headers, json=payload)
+            
+            # HTTP 에러(400, 500 등)가 발생하면 예외 발생시킴
+            response.raise_for_status()
+
+            # 4. 결과 파싱 및 디코딩
+            result = response.json()
+            if "predictions" in result:
+                b64_image = result["predictions"][0]["bytesBase64Encoded"]
+                return base64.b64decode(b64_image)
+            else:
+                print(f"응답에 이미지가 없습니다: {result}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            # 네트워크 오류나 API 오류 시 상세 내용 출력
+            print(f"API 요청 실패: {e}")
+            if response is not None:
+                print(f"상세 에러 메시지: {response.text}")
+            return None
+        except Exception as e:
+            # 기타 오류
+            print(f"오류 발생: {e}")
+            return None
 
 # ==============================================================================
 # 2. Main UI & Orchestration
@@ -344,6 +383,7 @@ if st.session_state.result_zip:
             type="primary",
             use_container_width=True
         )
+
 
 
 
