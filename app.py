@@ -11,18 +11,51 @@ import urllib.request
 import urllib.error
 import zipfile
 import io
+import random
 
 # ==============================================================================
 # 0. 시스템 설정 & Streamlit UI 초기화
 # ==============================================================================
 st.set_page_config(page_title="Violin Blog Master", page_icon="🎻", layout="wide")
 
-# API 키 로드 (Secrets 우선)
+# [CSS 수정] 모바일 최적화 + 블로그 미리보기 스타일(Paper Style)
+st.markdown("""
+    <style>
+        /* 모바일 상단 여백 및 헤더 숨김 */
+        .block-container { padding-top: 1.5rem !important; padding-bottom: 3rem !important; }
+        header { visibility: hidden; }
+        header:hover { visibility: visible; }
+        
+        /* [핵심] 블로그 미리보기 종이 스타일 */
+        .blog-preview-box {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            color: black;
+            font-family: 'Nanum Gothic', sans-serif;
+            line-height: 1.8;
+            margin-bottom: 20px;
+        }
+        /* 네이버 블로그 느낌의 소제목 스타일 */
+        .blog-preview-box h3 {
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        /* 드래그 선택 시 색상 */
+        ::selection {
+            background: #ffeb3b;
+            color: black;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# API 키 로드
 if "GOOGLE_API_KEY" in st.secrets:
     os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 api_key = os.environ.get("GOOGLE_API_KEY")
 
-# 모듈 매핑
 MODULE_NAMES = {
     "VIRAL": "naver_blog_mass_appeal",
     "ELEGANT": "naver_blog_elegant",
@@ -30,64 +63,74 @@ MODULE_NAMES = {
     "SEASON": "naver_blog_SEASON_special"
 }
 
-# 세션 상태 초기화
-if "result_zip" not in st.session_state:
-    st.session_state.result_zip = None
-if "preview_html" not in st.session_state:
-    st.session_state.preview_html = None
+if "input_topic" not in st.session_state: st.session_state.input_topic = ""
+if "input_notes" not in st.session_state: st.session_state.input_notes = ""
+if "result_zip" not in st.session_state: st.session_state.result_zip = None
+if "preview_html" not in st.session_state: st.session_state.preview_html = None
 
 # ==============================================================================
-# 1. Agent Classes (선생님의 원본 로직 100% 보존)
+# 1. Agent Classes (로직 동일)
 # ==============================================================================
 
 class DirectorAgent:
-    """총괄 기획: 사용자의 의도를 파악하고 모드를 결정"""
     def get_mode_from_ui(self):
-        # 웹 UI에서는 input() 대신 사이드바 선택
         with st.sidebar:
             st.header("🎬 Director Agent")
-            mode = st.radio(
-                "작전 모드 선택",
-                ("VIRAL (정보성/다산정보통)", "ELEGANT (감성/우아한원장)", "KIDS (유아/친절한쌤)", "SEASON (방학/전략가)"),
-                index=0
-            )
-            st.info(f"현재 모드: {mode.split()[0]}")
+            mode = st.radio("작전 모드", ("VIRAL (정보성)", "ELEGANT (감성)", "KIDS (유아)", "SEASON (특강)"), index=0)
             return mode.split()[0]
 
+    def generate_random_content(self, api_key):
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        prompt = """
+        당신은 창의적인 바이올린 학원 마케팅 디렉터입니다.
+        아래 5가지 컨셉 중 하나를 랜덤하게 골라, 창의적이고 트렌디한 블로그 글 주제와 선생님의 메모를 작성하세요.
+        
+        [컨셉 후보]
+        1. 정보성 (바이올린 가격, 관리법, 학원 고르는 팁)
+        2. 감성/철학 (음악이 주는 힘, 아이의 성장, 계절감)
+        3. 유아/초등 (소근육 발달, 집중력, 아이 눈높이 교육)
+        4. 음악 전공/전문가 (입시, 콩쿠르, 디테일한 테크닉, 전공생 멘탈관리)
+        5. 방학 특강 (단기 완성, 방학 알차게 보내기, 새학기 대비)
+
+        [요청사항]
+        - 주제: 사람들의 클릭을 유도하는 매력적인 제목 스타일 또는 바이올린 개인레슨과 관련된 주제
+        - 메모: 선생님이 겪은 구체적인 에피소드나 강조하고 싶은 핵심 포인트 (150자 내외)
+        - 출력: 오직 JSON 형식으로만 주세요. {"topic": "...", "notes": "..."}
+        """
+        try:
+            response = model.generate_content(prompt)
+            text = response.text.strip().replace("```json", "").replace("```", "")
+            return json.loads(text)
+        except:
+            return {"topic": "주제 생성 실패", "notes": "다시 시도해주세요."}
+
 class WriterAgent:
-    """글쓰기: 외부 모듈(.py)을 동적으로 로드하여 초안 작성"""
     def write_draft(self, mode, topic, notes):
         module_name = MODULE_NAMES[mode]
-        # st.toast(f"📝 Writer: '{module_name}.py' 전문가 호출 중...", icon="🏃")
-        
         try:
             module = importlib.import_module(module_name)
-            importlib.reload(module) # 모듈 수정 시 즉시 반영을 위해 리로드
-            
+            importlib.reload(module)
             if mode == "VIRAL": return module.generate_viral_blog_post(topic, notes)
             elif mode == "ELEGANT": return module.generate_real_blog_post(topic, notes)
             elif mode == "KIDS": return module.agent_blog_writer(topic, notes)
             elif mode == "SEASON": return module.generate_SEASON_special_post(topic, notes)
-                
-        except ImportError:
-            return f"❌ 오류: '{module_name}.py' 파일이 없습니다."
-        except Exception as e:
-            return f"❌ 오류 발생: {e}"
+        except Exception as e: return f"❌ 오류: {e}"
 
 class EditorAgent:
-    """편집: 초안을 HTML로 변환하고 이미지 위치 기획"""
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
 
     def edit_to_html(self, raw_text, mode):
+
         style_guide = {
             "VIRAL": "핵심 키워드 볼드 처리, 리스트 활용, 명쾌한 어조",
             "ELEGANT": "우아한 인용구 활용, 여백의 미, 감성적인 문단 나눔",
             "KIDS": "따뜻한 대화체 유지, 중요한 육아 정보 강조",
-            "SEASON": "긴박감 넘치는 강조 처리, 커리큘럼 표 스타일링"
+            "WINTER": "긴박감 넘치는 강조 처리, 커리큘럼 표 스타일링"
         }
-
+        # [핵심 수정] 네이버 스마트 에디터와 호환성 높은 스타일 적용
         prompt = f"""
         당신은 네이버 블로그 편집장입니다. 아래 [초안]을 바탕으로 블로그에 바로 붙여넣을 수 있는 **완벽한 HTML 원고**로 재작성하세요.
         
@@ -113,19 +156,21 @@ class EditorAgent:
         return response.text.strip().replace("```html", "").replace("```", "")
 
 class ArtDirectorAgent:
-    """프롬프트 엔지니어: 한국어 상황 묘사를 고품질의 영어 AI 그림 프롬프트로 번역합니다"""
+    """프롬프트 엔지니어: 한국어 상황 묘사를 고품질의 영어 AI 그림 프롬프트로 번역합니다."""
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
 
     def create_prompt(self, korean_desc, mode):
+        # 블로그 전체 테마 유지 (일관성)
         themes = {
-            "VIRAL": "Clean, bright professional photography, minimalist",
-            "ELEGANT": "Cinematic lighting, warm atmosphere, shallow depth of field",
-            "KIDS": "Soft pastel tones, cute and heartwarming, bright studio",
-            "SEASON": "Cozy SEASON atmosphere, focused study environment"
+            "VIRAL": "Clean, bright professional photography style, high contrast, minimalist infographic vibe",
+            "ELEGANT": "Warm cinematic lighting, emotional atmosphere, shallow depth of field, classical music aesthetic, high resolution",
+            "KIDS": "Soft pastel tones, cute and heartwarming, educational illustration style or bright photography",
+            "WINTER": "Cozy winter atmosphere, focused study environment, warm indoor lighting, snow outside window hint"
         }
         theme_prompt = themes.get(mode, "High quality photography")
+        
         prompt = f"""
         Act as a world-class AI Art Director and Visual Creative Lead specializing in cinematic storytelling, fine-art composition, and editorial-grade concept development.
 
@@ -154,168 +199,123 @@ class ArtDirectorAgent:
         [Subject]: Violin, Music Education, Students, Teacher.
 
         Output ONLY the final, polished English prompt string—no explanations.
-        """
+        """"
         response = self.model.generate_content(prompt)
         return response.text.strip()
 
 class PainterAgent:
-    """화가: Imagen 3 API 호출 및 이미지 생성 (메모리상에 저장)"""
     def __init__(self, api_key):
         self.api_key = api_key
-        # REST API URL
         self.model_name = "imagen-4.0-ultra-generate-preview-06-06" 
         self.api_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:predict"
 
     def draw_to_bytes(self, prompt):
         headers = {"Content-Type": "application/json"}
-        payload = {
-            "instances": [{"prompt": prompt}],
-            "parameters": {"sampleCount": 1, "aspectRatio": "4:3"}
-        }
-        
+        payload = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": "4:3"}}
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(self.url, data=data, headers=headers)
             with urllib.request.urlopen(req) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 if "predictions" in result:
-                    b64 = result["predictions"][0]["bytesBase64Encoded"]
-                    return base64.b64decode(b64)
-        except Exception as e:
-            return None # 실패 시 None 반환
+                    return base64.b64decode(result["predictions"][0]["bytesBase64Encoded"])
+        except: return None
 
 # ==============================================================================
 # 2. Main UI & Orchestration
 # ==============================================================================
-
 st.title("🎻 Violin Blog Master")
-st.markdown("**Agent-Based** Professional Blog Post Generator")
+if not api_key: st.error("🚨 API Key가 없습니다."); st.stop()
 
-if not api_key:
-    st.error("🚨 API Key가 없습니다. Secrets에 설정해주세요.")
-    st.stop()
-
-# 1. 기획 (Director)
 director = DirectorAgent()
 current_mode = director.get_mode_from_ui()
 
-col1, col2 = st.columns([3, 1])
-with col1:
-    topic = st.text_input("주제", placeholder="예: 7세 바이올린 첫 수업")
-with col2:
-    # 주제 추천 기능 (간단하게 구현)
-    if st.button("🎲 주제 추천"):
-         genai.configure(api_key=api_key)
-         rec_model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
-         rec = rec_model.generate_content(f"Random하게 리서치하여 바이올린 개인레슨 블로그 주제 10개 추천 후 5개 랭킹매겨서 첫번째꺼 제공. 모드: {current_mode}. 제목만 나열.")
-         st.toast(rec.text)
+def apply_magic_fill():
+    with st.spinner("🎲 AI가 생각 중..."):
+        c = director.generate_random_content(api_key)
+        st.session_state.input_topic = c['topic']
+        st.session_state.input_notes = c['notes']
 
-notes = st.text_area("메모 / 핵심 내용", height=100)
+col1, col2 = st.columns([0.7, 0.3], gap="small")
+with col1: st.write(""); st.subheader("📝 주제 및 메모")
+with col2: st.button("🎲 랜덤 자동채움", on_click=apply_magic_fill, use_container_width=True)
 
-# 실행 버튼
-if st.button("🚀 에이전트 팀 호출 (Start)", type="primary"):
-    if not topic:
-        st.warning("주제를 입력해주세요.")
+topic = st.text_input("주제", value=st.session_state.input_topic, placeholder="작성할 글의 주제", key="topic_input")
+notes = st.text_area("메모", value=st.session_state.input_notes, height=150, placeholder="핵심 내용", key="notes_input")
+
+if st.button("🚀 에이전트 팀 호출 (Start)", type="primary", use_container_width=True):
+    if not topic: st.warning("주제를 입력하세요.")
     else:
-        # 상태창 생성
-        status = st.status("🚀 [Violin Blog Master] 시스템 가동 중...", expanded=True)
-        
+        status = st.status("🚀 작업 시작...", expanded=True)
         try:
-            # 2. 글쓰기 (Writer)
+            # 1. Writer
             writer = WriterAgent()
-            status.write(f"📝 [Writer] '{current_mode}' 전문 작가가 글을 쓰는 중입니다...")
+            status.write(f"📝 글 쓰는 중 ({current_mode})...")
             draft = writer.write_draft(current_mode, topic, notes)
             
-            if "❌" in draft:
-                status.update(label="오류 발생", state="error")
-                st.error(draft)
-                st.stop()
-
-            # 3. 편집 (Editor)
+            # 2. Editor
             editor = EditorAgent(api_key)
-            status.write("✨ [Editor] 네이버 블로그 포맷으로 편집 중입니다...")
+            status.write("✨ 예쁘게 꾸미는 중...")
             html_content = editor.edit_to_html(draft, current_mode)
 
-            # 4. 미술 (Art Director & Painter)
-            art_director = ArtDirectorAgent(api_key)
-            painter = PainterAgent(api_key)
-            
-            image_requests = re.findall(r"\[IMAGE_REQ: (.*?)\]", html_content)
-            generated_images = [] # (파일명, 바이너리)
-            
+            # 3. Art & Painter
+            art = ArtDirectorAgent(api_key)
+            paint = PainterAgent(api_key)
+            reqs = re.findall(r"\[IMAGE_REQ: (.*?)\]", html_content)
+            imgs = []
             final_html = html_content
             
-            if image_requests:
-                prog_bar = status.progress(0)
-                status.write(f"🎨 [Painter] 총 {len(image_requests)}장의 이미지를 그리기 시작합니다.")
-                
-                for idx, req in enumerate(image_requests):
-                    # 프롬프트 생성
-                    eng_prompt = art_director.create_prompt(req, current_mode)
-                    status.write(f"  └─ 🖌️ 그리는 중 ({idx+1}/{len(image_requests)}): {req}")
-                    
-                    # 그림 생성
-                    img_bytes = painter.draw_to_bytes(eng_prompt)
-                    
-                    if img_bytes:
-                        fname = f"image_{idx+1}.png"
-                        generated_images.append((fname, img_bytes))
-                        
-                        # HTML 태그 교체 (블로그 붙여넣기 가이드용)
-                        replace_html = f"""
-                        <div align="center" style="margin: 20px 0; border: 2px dashed #ccc; padding: 20px;">
-                            <span style="color: #888; font-weight: bold;">[이곳에 '{fname}' 이미지를 넣으세요]</span><br>
-                            <img src="{fname}" style="max-width: 300px; opacity: 0.5; margin-top: 10px;">
-                        </div>
-                        """
-                        final_html = final_html.replace(f"[IMAGE_REQ: {req}]", replace_html, 1)
-                    
-                    prog_bar.progress((idx + 1) / len(image_requests))
+            if reqs:
+                pbar = status.progress(0)
+                status.write(f"🎨 이미지 {len(reqs)}장 생성 중...")
+                for i, r in enumerate(reqs):
+                    pbar.progress((i)/len(reqs))
+                    p = art.create_prompt(r, current_mode)
+                    b = paint.draw_to_bytes(p)
+                    if b:
+                        fname = f"image_{i+1}.png"
+                        imgs.append((fname, b))
+                        # [핵심] 복사 붙여넣기 시 이미지 자리를 시각적으로 보여줌
+                        rep = f"""<br><div style='background:#f1f3f5; padding:20px; text-align:center; border-radius:10px; margin: 10px 0;'>📸 <b>이미지 자리 ({fname})</b><br><span style='font-size:0.8em; color:#888;'>이곳에 다운받은 이미지를 넣으세요</span></div><br>"""
+                        final_html = final_html.replace(f"[IMAGE_REQ: {r}]", rep, 1)
+                pbar.progress(1.0)
 
-            # 결과 저장
             st.session_state.preview_html = final_html
             
-            # ZIP 파일 생성 (메모리 상에서)
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zf:
-                # HTML 추가
-                full_html_doc = f"<html><body>{final_html}</body></html>"
-                zf.writestr("index.html", full_html_doc)
-                # 이미지 추가
-                for fname, data in generated_images:
-                    zf.writestr(fname, data)
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w") as zf:
+                zf.writestr("index.html", f"<html><body>{final_html}</body></html>")
+                for f, d in imgs: zf.writestr(f, d)
+            st.session_state.result_zip = zip_buf.getvalue()
             
-            st.session_state.result_zip = zip_buffer.getvalue()
-            
-            status.update(label="✅ 모든 에이전트 작업 완료!", state="complete", expanded=False)
-
-        except Exception as e:
-            status.update(label="시스템 오류", state="error")
-            st.error(f"Error: {e}")
+            status.update(label="✅ 완성되었습니다!", state="complete", expanded=False)
+        except Exception as e: status.update(label="에러 발생", state="error"); st.error(e)
 
 # ==============================================================================
-# 3. Result View (결과 확인 및 다운로드)
+# 3. 결과 뷰 (여기가 핵심 변경됨)
 # ==============================================================================
 if st.session_state.result_zip:
     st.divider()
+    st.subheader("🎉 완성된 원고")
     
-    st.subheader("📦 작업 결과물")
-    
-    col_a, col_b = st.columns([2, 1])
-    
-    with col_a:
-        st.info("아래 코드를 복사해서 네이버 블로그 [HTML 모드]가 아니라 그냥 붙여넣으세요.")
-        st.code(st.session_state.preview_html, language="html")
-        
-    with col_b:
-        st.success("이미지와 원고가 준비되었습니다.")
+    # 상단 안내
+    st.info("💡 **사용법**: 아래 하얀 박스 안의 내용을 **마우스로 드래그해서 복사(Ctrl+C)** 한 뒤, 네이버 블로그에 **붙여넣기(Ctrl+V)** 하세요. (이미지는 따로 넣어주세요)")
+
+    # 1. 렌더링된 미리보기 (복사용)
+    # st.code 대신 st.markdown(unsafe_allow_html=True)를 사용하여 실제 적용된 스타일을 보여줌
+    st.markdown(f"""
+        <div class="blog-preview-box">
+            {st.session_state.preview_html}
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 2. 이미지 다운로드
+    if st.session_state.result_zip:
         st.download_button(
-            label="📥 전체 패키지 다운로드 (.zip)",
+            label="📦 이미지 전체 다운로드 (ZIP)",
             data=st.session_state.result_zip,
-            file_name="blog_package.zip",
+            file_name="blog_images.zip",
             mime="application/zip",
             type="primary",
             use_container_width=True
         )
-        st.caption("압축을 풀고 이미지를 블로그 해당 위치에 드래그하세요.")
-
