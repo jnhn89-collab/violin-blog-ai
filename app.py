@@ -125,7 +125,7 @@ class ArtDirectorAgent:
             "KIDS": "Soft pastel tones, cute and heartwarming, bright studio",
             "SEASON": "Cozy SEASON atmosphere, focused study environment"
         }
-        
+        theme_prompt = themes.get(mode, "High quality photography")
         prompt = f"""
         Act as a world-class AI Art Director and Visual Creative Lead specializing in cinematic storytelling, fine-art composition, and editorial-grade concept development.
 
@@ -318,3 +318,4 @@ if st.session_state.result_zip:
             use_container_width=True
         )
         st.caption("압축을 풀고 이미지를 블로그 해당 위치에 드래그하세요.")
+
