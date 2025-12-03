@@ -233,8 +233,8 @@ current_mode = director.get_mode_from_ui()
 def apply_magic_fill():
     with st.spinner("🎲 AI가 생각 중..."):
         c = director.generate_random_content(api_key)
-        st.session_state.input_topic = c['topic']
-        st.session_state.input_notes = c['notes']
+        st.session_state['topic_input'] = c['topic']
+        st.session_state['notes_input'] = c['notes']
 
 col1, col2 = st.columns([0.7, 0.3], gap="small")
 with col1: st.write(""); st.subheader("📝 주제 및 메모")
@@ -262,34 +262,60 @@ if st.button("🚀 에이전트 팀 호출 (Start)", type="primary", use_contain
             art = ArtDirectorAgent(api_key)
             paint = PainterAgent(api_key)
             reqs = re.findall(r"\[IMAGE_REQ: (.*?)\]", html_content)
-            imgs = []
             final_html = html_content
             
+            # [수정] 이미지 데이터를 담을 임시 리스트 초기화
+            generated_imgs_list = []
+
             if reqs:
                 pbar = status.progress(0)
-                status.write(f"🎨 이미지 {len(reqs)}장 생성 중...")
+                status.write(f"🎨 이미지 {len(reqs)}장 생성 시도...")
+                
                 for i, r in enumerate(reqs):
                     pbar.progress((i)/len(reqs))
                     p = art.create_prompt(r, current_mode)
+                    
+                    # 이미지 생성 시도
                     b = paint.draw_to_bytes(p)
+                    fname = f"image_{i+1}.png"
+                    
                     if b:
-                        fname = f"image_{i+1}.png"
-                        imgs.append((fname, b))
-                        # [핵심] 복사 붙여넣기 시 이미지 자리를 시각적으로 보여줌
+                        # [핵심 수정] 생성 성공 시 리스트에 데이터 추가
+                        generated_imgs_list.append((fname, b))
+                        
+                        # HTML 교체 (성공)
                         rep = f"""<br><div style='background:#f1f3f5; padding:20px; text-align:center; border-radius:10px; margin: 10px 0;'>📸 <b>이미지 자리 ({fname})</b><br><span style='font-size:0.8em; color:#888;'>이곳에 다운받은 이미지를 넣으세요</span></div><br>"""
                         final_html = final_html.replace(f"[IMAGE_REQ: {r}]", rep, 1)
+                    else:
+                        # HTML 교체 (실패)
+                        rep = f"""<br><div style='background:#fff0f0; padding:10px; text-align:center; border-radius:10px; color:red;'>⚠️ <b>이미지 생성 실패</b><br><span style='font-size:0.8em;'>{r}</span></div><br>"""
+                        final_html = final_html.replace(f"[IMAGE_REQ: {r}]", rep, 1)
+                        status.write(f"⚠️ 이미지 생성 실패: {r}")
+
                 pbar.progress(1.0)
 
             st.session_state.preview_html = final_html
             
+            # [핵심 수정] ZIP 파일 생성 시 리스트에 있는 데이터 쓰기
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w") as zf:
+                # 1. HTML 파일 추가
                 zf.writestr("index.html", f"<html><body>{final_html}</body></html>")
-                for f, d in imgs: zf.writestr(f, d)
+                
+                # 2. 이미지 파일들 추가 (리스트 순회)
+                if generated_imgs_list:
+                    for fname, data in generated_imgs_list:
+                        zf.writestr(fname, data)
+                else:
+                    status.write("ℹ️ 생성된 이미지가 없어서 ZIP에 포함되지 않았습니다.")
+
             st.session_state.result_zip = zip_buf.getvalue()
             
             status.update(label="✅ 완성되었습니다!", state="complete", expanded=False)
-        except Exception as e: status.update(label="에러 발생", state="error"); st.error(e)
+            
+        except Exception as e: 
+            status.update(label="에러 발생", state="error")
+            st.error(f"Error details: {e}")
 
 # ==============================================================================
 # 3. 결과 뷰 (여기가 핵심 변경됨)
@@ -319,4 +345,5 @@ if st.session_state.result_zip:
             type="primary",
             use_container_width=True
         )
+
 
