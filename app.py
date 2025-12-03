@@ -206,8 +206,7 @@ class ArtDirectorAgent:
 class PainterAgent:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model_name = "imagen-4.0-ultra-generate-preview-06-06" 
-        self.api_endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:predict"
+        self.model_name = "imagen-4.0-generate-001"
 
     def draw_to_bytes(self, prompt):
         headers = {"Content-Type": "application/json"}
@@ -345,5 +344,6 @@ if st.session_state.result_zip:
             type="primary",
             use_container_width=True
         )
+
 
 
