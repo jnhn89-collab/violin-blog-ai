@@ -160,7 +160,7 @@ class ArtDirectorAgent:
     """프롬프트 엔지니어: 한국어 상황 묘사를 고품질의 영어 AI 그림 프롬프트로 번역합니다."""
     def __init__(self, api_key):
         genai.configure(api_key=api_key)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
+        self.model = genai.GenerativeModel('gemini-2.5-flash-preview-09-2025')
 
     def create_prompt(self, korean_desc, mode):
         # 블로그 전체 테마 유지 (일관성)
@@ -201,6 +201,7 @@ class ArtDirectorAgent:
 
         Output ONLY the final, polished English prompt string—no explanations.
         """
+
         response = self.model.generate_content(prompt)
         return response.text.strip()
 
@@ -383,6 +384,7 @@ if st.session_state.result_zip:
             type="primary",
             use_container_width=True
         )
+
 
 
 
